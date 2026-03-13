@@ -62,7 +62,7 @@ class Hero extends GameObject {//inherits from gamobject class and sets its own 
         this.type = "Hero";
         this.speed = { x: 0, y: 0 };
         this.cooldown = 0;
-        this.life = 3;//the hero starts with 3 lives
+        this.life = 5;//the hero starts with 5 lives
         this.points = 0;//points increase as we kill more enemies
     }
 
@@ -130,9 +130,6 @@ class Laser extends GameObject {//laser moves up 15px every 100ms and is removed
 }
 
 
-
-
-
 function intersectRect(r1, r2) {//returns true if two rectangles overlap, used to detect if objects touch each other
     return !(r2.left > r1.right ||
     r2.right < r1.left ||
@@ -156,8 +153,10 @@ const Messages = {//messages tht show we hit the bottons
 
 let heroImg, //global variables we use throughout the game
     enemyImg, 
+    enemyImg2,
     laserImg,
     lifeImg,
+    backgroundImg,
     canvas, ctx, 
     gameObjects = [], 
     hero, 
@@ -196,17 +195,23 @@ window.addEventListener("keyup", (evt) => {//when the key is pressed show the me
 	}
 });
 
-function createEnemies(ctx, canvas, enemyImg) {//calculates the starting x position to center the enemy formation on the canvas
+function createEnemies(ctx, canvas, enemyImg, enemyImg2) {//calculates the starting x position to center the enemy formation on the canvas
     const ENEMY_TOTAL = 5;
     const ENEMY_SPACING = 98;
     const FORMATION_WIDTH = ENEMY_TOTAL * ENEMY_SPACING;
     const START_X = (canvas.width - FORMATION_WIDTH) / 2;
     const STOP_X = START_X + FORMATION_WIDTH;
 
+    let count = 0;//for tracking the position of enemies
     for (let x = START_X; x < STOP_X; x += 98) {//5 rows and 5 columns
         for (let y = 0; y < 50 * 5; y += 50) {
             const enemy = new Enemy(x, y);
-            enemy.img = enemyImg;
+            //enemy.img = enemyImg;
+            //insttead of everyenemy being the same every other one is different
+            //enemy.img = count % 2 === 0 ? enemyImg : enemyImg2;
+            //this is for the UFOs to be in random spots in the enemies
+            enemy.img = Math.random() > 0.5 ? enemyImg : enemyImg2;
+            count++;
             gameObjects.push(enemy);
         }
     }
@@ -254,25 +259,22 @@ function drawGameObjects(ctx) {//drawing all the objects in game objects on canv
 }
 
 
-
-
-
 function initGame() {//connects key events to hero movement and creates the objects
     gameObjects = [];
-    createEnemies(ctx, canvas, enemyImg);
+    createEnemies(ctx, canvas, enemyImg, enemyImg2);
     createHero();
     //listens for key events and collision events, then responds accordingly
     eventEmitter.on(Messages.KEY_EVENT_UP, () => {
-        hero.y -= 5;
+        hero.y -= 15;
     });
     eventEmitter.on(Messages.KEY_EVENT_DOWN, () => {
-        hero.y += 5;
+        hero.y += 15;
     });
     eventEmitter.on(Messages.KEY_EVENT_LEFT, () => {
-        hero.x -= 5;
+        hero.x -= 15;
     });
     eventEmitter.on(Messages.KEY_EVENT_RIGHT, () => {
-        hero.x += 5;
+        hero.x += 15;
     });
     eventEmitter.on(Messages.KEY_EVENT_SPACE, () => {
         if (hero.canFire()) {
@@ -315,9 +317,9 @@ function initGame() {//connects key events to hero movement and creates the obje
 
 //draws life icons bottom right
 function drawLife() {
-    const START_POS = canvas.width - 180;
+    const START_POS = canvas.width - 280;//- 180;
     for (let i = 0; i < hero.life; i++) {
-        ctx.drawImage(lifeImg, START_POS + 45 * (i + 1), canvas.height - 37);
+        ctx.drawImage(lifeImg, START_POS + 45 * (i + 1), 7);
     }
 }
 
@@ -326,7 +328,7 @@ function drawPoints() {
     ctx.font = '30px Arial';
     ctx.fillStyle = 'red';
     ctx.textAlign = 'left';
-    drawText('Points: ' + hero.points, 10, canvas.height - 20);
+    drawText('Points: ' + hero.points, 10, 30);
 }
 
 function drawText(message, x, y) {
@@ -334,11 +336,11 @@ function drawText(message, x, y) {
 }
 
 //shows big message in center of screen
-function displayMessage(message, color = 'red') {
+function displayMessage(message, color = 'red', y=canvas.height / 2) {
     ctx.font = '30px Arial';
     ctx.fillStyle = color;
     ctx.textAlign = 'center';
-    ctx.fillText(message, canvas.width / 2, canvas.height / 2);
+    ctx.fillText(message, canvas.width / 2, y);
 }
 
 function isHeroDead() {
@@ -352,15 +354,17 @@ function isEnemiesDead() {
 
 //stops game and shows win or loss message
 function endGame(win) {
-    clearInterval(gameLoopId);
+    clearInterval(gameLoopId);//
     setTimeout(() => {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.fillStyle = 'black';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         if (win) {
-            displayMessage('Victory!!! Pew Pew... - Press [Enter] to start a new game Captain Pew Pew', 'green');
+            displayMessage('VICTORY!!! ENEMIES CLEARED!!!', 'green');
+            displayMessage('Press [Enter] to start a new game Captain Pew Pew', 'green', canvas.height / 2 + 40);
         } else {
-            displayMessage('You died !!! Press [Enter] to start a new game Captain Pew Pew');
+            displayMessage('YOU LIFE HAS COME TO AN END !!!', 'red');
+            displayMessage('Press [Enter] to restart Captain Pew Pew', 'red', canvas.height / 2 + 40);
         }
     }, 200);
 }
@@ -374,8 +378,9 @@ function resetGame() {
         initGame();
         gameLoopId = setInterval(() => {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-            ctx.fillStyle = 'black';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(backgroundImg, 0, 0, canvas.width, canvas.height);
+            //ctx.fillStyle = 'black';
+            //ctx.fillRect(0, 0, canvas.width, canvas.height);
             drawPoints();
             drawLife();
             updateGameObjects();
@@ -390,14 +395,17 @@ window.onload = async () => {
     ctx = canvas.getContext("2d");
     heroImg = await loadTexture("assets/player.png");
     enemyImg = await loadTexture("assets/enemyShip.png");
+    enemyImg2 = await loadTexture("assets/enemyUFO.png");
+    backgroundImg = await loadTexture("assets/background.jpeg");
     laserImg = await loadTexture("assets/laserRed.png");
     lifeImg = await loadTexture("assets/life.png");
 
     initGame();
     gameLoopId = setInterval(() => {//clearns and redraws everything eveyr 100ms
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.fillStyle = "black";
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(backgroundImg, 0, 0, canvas.width, canvas.height);
+        //ctx.fillStyle = "black";
+        //ctx.fillRect(0, 0, canvas.width, canvas.height);
         updateGameObjects();
         drawPoints();
         drawLife();
