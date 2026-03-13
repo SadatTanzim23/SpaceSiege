@@ -14,6 +14,9 @@ class EventEmitter {//for publishing and subscribing to messages it lets differe
             this.listeners[message].forEach((l) => l(message, payload));
         }
     }
+    clear() {
+        this.listeners = {};//wipes all listeners so the game can restart new
+    }
 }
 
 
@@ -41,15 +44,52 @@ class GameObject {//initializing the game objects positions and size
     draw(ctx) {//drawing it on to canvas
         ctx.drawImage(this.img, this.x, this.y, this.width, this.height);
     }
+    rectFromGameObject() {
+        return {
+            top: this.y,
+            left: this.x,
+            bottom: this.y + this.height,
+            right: this.x + this.width
+        }
+    }
 }
 
 class Hero extends GameObject {//inherits from gamobject class and sets its own width and height
     constructor(x, y) {
         super(x, y);
-        this.width = 98;
+        this.width = 99;
         this.height = 75;
         this.type = "Hero";
-        this.speed = 5;
+        this.speed = { x: 0, y: 0 };
+        this.cooldown = 0;
+        this.life = 3;//the hero starts with 3 lives
+        this.points = 0;//points increase as we kill more enemies
+    }
+
+    fire() {//cooldown counts down to 0 before hero can fire again
+        gameObjects.push(new Laser(this.x + 45, this.y - 10));
+        this.cooldown = 500;
+
+        let id = setInterval(() => {
+            if (this.cooldown > 0) {
+                this.cooldown -= 100;
+            } else {
+                clearInterval(id);
+            }
+        }, 200);
+    }
+
+    canFire() {
+        return this.cooldown === 0;
+    }
+    decrementLife(){//subtracting life
+        this.life--;
+        if (this.life === 0){
+            this.dead = true;
+        }
+    }
+    incrementPoints(){//increasing points based on kill
+        this.points += 100;
     }
 }
 
@@ -70,17 +110,54 @@ class Enemy extends GameObject {//inherits from gameobject also however we are a
     }
 }
 
+class Laser extends GameObject {//laser moves up 15px every 100ms and is removed when it leaves the screen
+    constructor(x, y) {
+        super(x, y);
+        this.width = 9;
+        this.height = 33;
+        this.type = 'Laser';
+        this.img = laserImg;
+
+        let id = setInterval(() => {
+            if (this.y > 0) {
+            this.y -= 15;
+            } else {
+            this.dead = true;
+            clearInterval(id);
+            }
+        }, 100);
+    }
+}
+
+
+
+
+
+function intersectRect(r1, r2) {//returns true if two rectangles overlap, used to detect if objects touch each other
+    return !(r2.left > r1.right ||
+    r2.right < r1.left ||
+    r2.top > r1.bottom ||
+    r2.bottom < r1.top);
+}
+
 
 const Messages = {//messages tht show we hit the bottons
     KEY_EVENT_UP: "KEY_EVENT_UP",
     KEY_EVENT_DOWN: "KEY_EVENT_DOWN",
     KEY_EVENT_LEFT: "KEY_EVENT_LEFT",
     KEY_EVENT_RIGHT: "KEY_EVENT_RIGHT",
+    KEY_EVENT_SPACE: "KEY_EVENT_SPACE",
+    KEY_EVENT_ENTER: "KEY_EVENT_ENTER",
+    COLLISION_ENEMY_LASER: "COLLISION_ENEMY_LASER",
+    COLLISION_ENEMY_HERO: "COLLISION_ENEMY_HERO",
+    GAME_END_WIN: "GAME_END_WIN",
+    GAME_END_LOSS: "GAME_END_LOSS",
 };
 
 let heroImg, //global variables we use throughout the game
     enemyImg, 
     laserImg,
+    lifeImg,
     canvas, ctx, 
     gameObjects = [], 
     hero, 
@@ -112,10 +189,14 @@ window.addEventListener("keyup", (evt) => {//when the key is pressed show the me
         eventEmitter.emit(Messages.KEY_EVENT_LEFT);
     } else if (evt.key === "ArrowRight") {
         eventEmitter.emit(Messages.KEY_EVENT_RIGHT);
-    }
+    } else if (evt.keyCode === 32){//comeback to it
+        eventEmitter.emit(Messages.KEY_EVENT_SPACE);
+    } else if (evt.key === "Enter") {
+		eventEmitter.emit(Messages.KEY_EVENT_ENTER);
+	}
 });
 
-function createEnemies(ctx, canvas, enemyImg) {//createing the enemies
+function createEnemies(ctx, canvas, enemyImg) {//calculates the starting x position to center the enemy formation on the canvas
     const ENEMY_TOTAL = 5;
     const ENEMY_SPACING = 98;
     const FORMATION_WIDTH = ENEMY_TOTAL * ENEMY_SPACING;
@@ -140,34 +221,169 @@ function createHero() {//createing the hero and adding it the game object
     gameObjects.push(hero);
 }
 
+function updateGameObjects() {//called every frame to check collisions and remove dead objects
+    const enemies = gameObjects.filter(go => go.type === 'Enemy');
+    const lasers = gameObjects.filter(go => go.type === "Laser");
+
+    // check if any enemy touches the hero
+    enemies.forEach((enemy) => {
+        const heroRect = hero.rectFromGameObject();
+        if (intersectRect(heroRect, enemy.rectFromGameObject())) {
+            eventEmitter.emit(Messages.COLLISION_ENEMY_HERO, { enemy });
+        }
+    });
+
+    // Test laser-enemy collisions
+    lasers.forEach((laser) => {
+        enemies.forEach((enemy) => {
+            if (intersectRect(laser.rectFromGameObject(), enemy.rectFromGameObject())) {
+                eventEmitter.emit(Messages.COLLISION_ENEMY_LASER, {
+                    first: laser,
+                    second: enemy,
+                });
+            }
+        });
+    });
+
+    // Remove destroyed objects
+    gameObjects = gameObjects.filter(go => !go.dead);
+}
+
 function drawGameObjects(ctx) {//drawing all the objects in game objects on canvas
     gameObjects.forEach(go => go.draw(ctx));
 }
 
 
 
+
+
 function initGame() {//connects key events to hero movement and creates the objects
-  gameObjects = [];
-  createEnemies(ctx, canvas, enemyImg);
-  createHero();
+    gameObjects = [];
+    createEnemies(ctx, canvas, enemyImg);
+    createHero();
+    //listens for key events and collision events, then responds accordingly
+    eventEmitter.on(Messages.KEY_EVENT_UP, () => {
+        hero.y -= 5;
+    });
+    eventEmitter.on(Messages.KEY_EVENT_DOWN, () => {
+        hero.y += 5;
+    });
+    eventEmitter.on(Messages.KEY_EVENT_LEFT, () => {
+        hero.x -= 5;
+    });
+    eventEmitter.on(Messages.KEY_EVENT_RIGHT, () => {
+        hero.x += 5;
+    });
+    eventEmitter.on(Messages.KEY_EVENT_SPACE, () => {
+        if (hero.canFire()) {
+            hero.fire();
+        }
+    });
+    eventEmitter.on(Messages.COLLISION_ENEMY_LASER, (_, { first, second }) => {
+        first.dead = true;
+        second.dead = true;
+        hero.incrementPoints();
 
-  eventEmitter.on(Messages.KEY_EVENT_UP, () => {
-    hero.y -= 5;
-  });
+		if (isEnemiesDead()) {
+			eventEmitter.emit(Messages.GAME_END_WIN);
+		}
+	});
 
-  eventEmitter.on(Messages.KEY_EVENT_DOWN, () => {
-    hero.y += 5;
-  });
-
-  eventEmitter.on(Messages.KEY_EVENT_LEFT, () => {
-    hero.x -= 5;
-  });
-
-  eventEmitter.on(Messages.KEY_EVENT_RIGHT, () => {
-    hero.x += 5;
-  });
-
+	eventEmitter.on(Messages.COLLISION_ENEMY_HERO, (_, { enemy }) => {
+		enemy.dead = true;
+		hero.decrementLife();
+		if (isHeroDead()) {
+			eventEmitter.emit(Messages.GAME_END_LOSS);
+			return; // loss before victory
+		}
+		if (isEnemiesDead()) {
+			eventEmitter.emit(Messages.GAME_END_WIN);
+		}
+	});
+    eventEmitter.on(Messages.KEY_EVENT_ENTER, () => {
+        resetGame();
+    });
+	eventEmitter.on(Messages.GAME_END_WIN, () => {
+		endGame(true);
+	});
+	eventEmitter.on(Messages.GAME_END_LOSS, () => {
+		endGame(false);
+	});
 }
+
+//All the helper functions
+
+//draws life icons bottom right
+function drawLife() {
+    const START_POS = canvas.width - 180;
+    for (let i = 0; i < hero.life; i++) {
+        ctx.drawImage(lifeImg, START_POS + 45 * (i + 1), canvas.height - 37);
+    }
+}
+
+//draws score bottom left
+function drawPoints() {
+    ctx.font = '30px Arial';
+    ctx.fillStyle = 'red';
+    ctx.textAlign = 'left';
+    drawText('Points: ' + hero.points, 10, canvas.height - 20);
+}
+
+function drawText(message, x, y) {
+    ctx.fillText(message, x, y);
+}
+
+//shows big message in center of screen
+function displayMessage(message, color = 'red') {
+    ctx.font = '30px Arial';
+    ctx.fillStyle = color;
+    ctx.textAlign = 'center';
+    ctx.fillText(message, canvas.width / 2, canvas.height / 2);
+}
+
+function isHeroDead() {
+    return hero.life <= 0;
+}
+
+function isEnemiesDead() {
+    const enemies = gameObjects.filter(go => go.type === 'Enemy' && !go.dead);
+    return enemies.length === 0;
+}
+
+//stops game and shows win or loss message
+function endGame(win) {
+    clearInterval(gameLoopId);
+    setTimeout(() => {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = 'black';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        if (win) {
+            displayMessage('Victory!!! Pew Pew... - Press [Enter] to start a new game Captain Pew Pew', 'green');
+        } else {
+            displayMessage('You died !!! Press [Enter] to start a new game Captain Pew Pew');
+        }
+    }, 200);
+}
+
+//resets everything and starts new
+//clears old listeners so we dont stack duplicate event handlers on restart
+function resetGame() {
+    if (gameLoopId) {
+        clearInterval(gameLoopId);
+        eventEmitter.clear();
+        initGame();
+        gameLoopId = setInterval(() => {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = 'black';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            drawPoints();
+            drawLife();
+            updateGameObjects();
+            drawGameObjects(ctx);
+        }, 100);
+    }
+}
+
 
 window.onload = async () => {
     canvas = document.getElementById("canvas");
@@ -175,12 +391,16 @@ window.onload = async () => {
     heroImg = await loadTexture("assets/player.png");
     enemyImg = await loadTexture("assets/enemyShip.png");
     laserImg = await loadTexture("assets/laserRed.png");
+    lifeImg = await loadTexture("assets/life.png");
 
     initGame();
-    const gameLoopId = setInterval(() => {//clearns and redraws everything eveyr 100ms
+    gameLoopId = setInterval(() => {//clearns and redraws everything eveyr 100ms
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.fillStyle = "black";
         ctx.fillRect(0, 0, canvas.width, canvas.height);
+        updateGameObjects();
+        drawPoints();
+        drawLife();
         drawGameObjects(ctx);
     }, 100);
 };
